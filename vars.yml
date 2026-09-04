@@ -1,0 +1,38 @@
+---
+# ==============================================================================
+# Kubespray Variables: Kata Containers (Firecracker) & Cilium CNI
+# ==============================================================================
+
+# --- Container Engine & Snapshotter ---
+container_manager: containerd
+
+# Firecracker does NOT support virtio-fs or overlayfs directory mounts.
+# Container rootfs must be passed as block devices via the devmapper snapshotter.
+# Run 'setup-devmapper.yml' to initialize the thin-pool before or after deployment.
+containerd_snapshotter: devmapper
+
+# --- CNI Plugin: Cilium ---
+kube_network_plugin: cilium
+kube_owner: root
+
+# Enable endpoint routes for Cilium to cleanly forward packets across the Kata TAP interface
+cilium_config_extra_vars:
+  enable-endpoint-routes: true
+
+# --- Kata Containers Base Installation ---
+# Installs kata-static release into /opt/kata and loads vhost_net/vhost_vsock modules
+kata_containers_enabled: true
+
+# Host etcd is required by Kubespray when Kata Containers is enabled
+etcd_deployment_type: host
+
+# Systemd cgroup driver for Kubelet pod overhead accounting
+kubelet_cgroup_driver: systemd
+
+# --- Register kata-fc (Firecracker) in Containerd ---
+containerd_additional_runtimes:
+  - name: kata-fc
+    type: "io.containerd.kata.v2"
+    engine: "/opt/kata/bin/containerd-shim-kata-v2"
+    options:
+      ConfigPath: "/opt/kata/share/kata-containers/defaults/configuration-fc.toml"

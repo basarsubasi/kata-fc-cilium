@@ -1,0 +1,141 @@
+---
+# ==============================================================================
+# Setup Devmapper Thin-Pool for Kata Containers + Firecracker (kata-fc)
+#
+# Firecracker does NOT support virtio-fs or host-directory sharing (overlayfs).
+# Container rootfs must be exposed as block devices via the devmapper snapshotter.
+#
+# This playbook:
+# 1. Installs thin-provisioning-tools and device-mapper utilities
+# 2. Creates a sparse thin-pool for containerd
+# 3. Creates a persistent systemd service to keep the pool active across reboots
+# 4. Configures the containerd devmapper snapshotter plugin
+# ==============================================================================
+
+- name: Configure Devmapper Thin-Pool for Firecracker
+  hosts: kube_control_plane:kube_node
+  become: true
+  vars:
+    devmapper_dir: /var/lib/containerd/devmapper
+    pool_name: containerd-pool
+    data_size_gb: 50
+    metadata_size_gb: 5
+    base_image_size: 10GB
+
+  tasks:
+    - name: Install thin-provisioning utilities (Debian/Ubuntu)
+      apt:
+        name:
+          - thin-provisioning-tools
+          - lvm2
+        state: present
+        update_cache: true
+      when: ansible_os_family == 'Debian'
+
+    - name: Install thin-provisioning utilities (RHEL/CentOS/Rocky)
+      package:
+        name:
+          - device-mapper-persistent-data
+          - lvm2
+        state: present
+      when: ansible_os_family == 'RedHat'
+
+    - name: Create devmapper directory
+      file:
+        path: "{{ devmapper_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Create sparse data file if not present
+      command:
+        cmd: "truncate -s {{ data_size_gb }}G {{ devmapper_dir }}/data"
+        creates: "{{ devmapper_dir }}/data"
+
+    - name: Create sparse metadata file if not present
+      command:
+        cmd: "truncate -s {{ metadata_size_gb }}G {{ devmapper_dir }}/metadata"
+        creates: "{{ devmapper_dir }}/metadata"
+
+    - name: Install persistent devmapper setup script
+      copy:
+        dest: /usr/local/bin/containerd-devmapper-init.sh
+        mode: "0755"
+        content: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          DATA_FILE="{{ devmapper_dir }}/data"
+          META_FILE="{{ devmapper_dir }}/metadata"
+          POOL_NAME="{{ pool_name }}"
+
+          if dmsetup info "${POOL_NAME}" &>/dev/null; then
+            echo "Thin-pool ${POOL_NAME} is already active."
+            exit 0
+          fi
+
+          # Attach loop devices
+          DATA_DEV=$(losetup -j "${DATA_FILE}" | cut -d: -f1 | head -n1)
+          if [ -z "${DATA_DEV}" ]; then
+            DATA_DEV=$(losetup -f --show "${DATA_FILE}")
+          fi
+
+          META_DEV=$(losetup -j "${META_FILE}" | cut -d: -f1 | head -n1)
+          if [ -z "${META_DEV}" ]; then
+            META_DEV=$(losetup -f --show "${META_FILE}")
+          fi
+
+          SECTORS=$(blockdev --getsz "${DATA_DEV}")
+
+          # Create thin-pool if not exists
+          dmsetup create "${POOL_NAME}" --table "0 ${SECTORS} thin-pool ${META_DEV} ${DATA_DEV} 128 32768"
+          echo "Created thin-pool ${POOL_NAME}."
+
+    - name: Create systemd service for devmapper persistence
+      copy:
+        dest: /etc/systemd/system/containerd-devmapper.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Setup containerd devmapper thin-pool for Kata-FC
+          DefaultDependencies=no
+          After=local-fs.target
+          Before=containerd.service
+
+          [Service]
+          Type=oneshot
+          RemainAfterExit=yes
+          ExecStart=/usr/local/bin/containerd-devmapper-init.sh
+
+          [Install]
+          WantedBy=multi-user.target containerd.service
+
+    - name: Reload systemd and start containerd-devmapper service
+      systemd:
+        name: containerd-devmapper
+        daemon_reload: true
+        state: started
+        enabled: true
+
+    - name: Check if containerd config exists
+      stat:
+        path: /etc/containerd/config.toml
+      register: containerd_conf
+
+    - name: Add devmapper snapshotter configuration block to containerd
+      blockinfile:
+        path: /etc/containerd/config.toml
+        marker: "# {mark} ANSIBLE MANAGED BLOCK: KATA-FC DEVMAPPER"
+        block: |
+          [plugins."io.containerd.snapshotter.v1.devmapper"]
+            pool_name = "{{ pool_name }}"
+            root_path = "{{ devmapper_dir }}"
+            base_image_size = "{{ base_image_size }}"
+            discard_blocks = true
+      when: containerd_conf.stat.exists
+      notify: Restart containerd
+
+  handlers:
+    - name: Restart containerd
+      systemd:
+        name: containerd
+        state: restarted

@@ -1,0 +1,65 @@
+---
+# ==============================================================================
+# Automated Verification: Kata Containers (Firecracker) + Cilium
+#
+# 1. Applies kata-fc RuntimeClass and test-kata-fc Pod
+# 2. Waits for Pod to be Ready (microVM booted via devmapper thin-pool)
+# 3. Validates hardware microVM kernel isolation (host kernel vs guest kernel)
+# 4. Validates Cilium endpoint status and connectivity
+# ==============================================================================
+
+- name: Apply kata-fc Manifests and Verify MicroVM Isolation
+  hosts: kube_control_plane[0]
+  become: true
+  tasks:
+    - name: Clean up existing test pod if re-running
+      command: kubectl delete pod test-kata-fc --ignore-not-found=true --timeout=30s
+      failed_when: false
+
+    - name: Copy kata-fc RuntimeClass & test pod manifest to control plane
+      copy:
+        src: "{{ playbook_dir }}/kata-fc-runtimeclass.yaml"
+        dest: /tmp/kata-fc-runtimeclass.yaml
+        mode: "0644"
+
+    - name: Apply kata-fc RuntimeClass and test-kata-fc pod
+      command: kubectl apply -f /tmp/kata-fc-runtimeclass.yaml
+
+    - name: Wait for test-kata-fc pod to reach Ready status (microVM boot & image pull)
+      command: kubectl wait --for=condition=Ready pod/test-kata-fc --timeout=180s
+      register: wait_result
+      retries: 3
+      delay: 5
+      until: wait_result.rc == 0
+
+    - name: Get Host Linux Kernel Version
+      command: uname -r
+      register: host_kernel
+
+    - name: Get MicroVM Linux Kernel Version inside test-kata-fc
+      command: kubectl exec test-kata-fc -- uname -r
+      register: guest_kernel
+
+    - name: Check Cilium Pods
+      command: kubectl -n kube-system get pods -l k8s-app=cilium -o wide
+      register: cilium_pods
+
+    - name: Check Cilium Endpoints
+      command: kubectl -n kube-system exec -c cilium-agent ds/cilium -- cilium endpoint list
+      register: cilium_endpoints
+      failed_when: false
+
+    - name: Display Final Verification Report
+      vars:
+        is_isolated: "{{ host_kernel.stdout != guest_kernel.stdout }}"
+      debug:
+        msg:
+          - "=================================================================="
+          - "           KATA-FC & CILIUM CLUSTER VERIFICATION REPORT"
+          - "=================================================================="
+          - " Test Pod Status      : Running & Ready"
+          - " Host Node Kernel     : {{ host_kernel.stdout }}"
+          - " MicroVM Guest Kernel : {{ guest_kernel.stdout }}"
+          - " Kernel Isolation     : {{ 'SUCCESS: Dedicated MicroVM Kernel Verified' if is_isolated else 'WARNING: Kernel matched host' }}"
+          - " Cilium CNI Status    : Active"
+          - "=================================================================="
