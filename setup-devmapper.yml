@@ -128,19 +128,27 @@
         fi
       changed_when: false
 
-    - name: Set containerd CRI snapshotter to devmapper and configure unpack_platforms
+    - name: Configure containerd CRI images to use devmapper with local image pull
       replace:
         path: /etc/containerd/config.toml
-        regexp: 'snapshotter\s*=\s*"overlayfs"'
-        replace: "snapshotter = \"devmapper\"\n    unpack_platforms = [\"linux/amd64\"]"
+        regexp: '\[plugins\."io\.containerd\.cri\.v1\.images"\]'
+        replace: "[plugins.\"io.containerd.cri.v1.images\"]\n    use_local_image_pull = true"
       when: containerd_conf.stat.exists
       notify: Restart containerd
 
-    - name: Ensure unpack_platforms is present for containerd 2.x devmapper
+    - name: Set containerd CRI snapshotter to devmapper
+      replace:
+        path: /etc/containerd/config.toml
+        regexp: 'snapshotter\s*=\s*"overlayfs"'
+        replace: 'snapshotter = "devmapper"'
+      when: containerd_conf.stat.exists
+      notify: Restart containerd
+
+    - name: Ensure use_local_image_pull is enabled for containerd 2.x devmapper
       lineinfile:
         path: /etc/containerd/config.toml
-        insertafter: '^\s*snapshotter\s*=\s*"devmapper"'
-        line: '    unpack_platforms = ["linux/amd64"]'
+        insertafter: '\[plugins\."io\.containerd\.cri\.v1\.images"\]'
+        line: '    use_local_image_pull = true'
         state: present
       when: containerd_conf.stat.exists
       notify: Restart containerd
