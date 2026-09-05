@@ -17,9 +17,9 @@
   hosts: kube_node:kube_control_plane
   become: true
   vars:
-    # Set openebs_lvm_device to a raw device (e.g. /dev/sdb) if you have a dedicated disk.
-    # If empty, a persistent sparse loopback file is automatically created.
-    openebs_lvm_device: ""
+    # Uses openebs_lvm_device from inventory.ini (e.g. /dev/sdb) if defined.
+    # Falls back to empty string (sparse loopback file) only if unset.
+    openebs_lvm_device: "{{ openebs_lvm_device | default('') }}"
     openebs_vg_name: openebs-vg
     loop_img_path: /var/lib/openebs/lvm.img
     loop_img_size_gb: 50
