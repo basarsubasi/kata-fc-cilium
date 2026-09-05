@@ -150,8 +150,9 @@
         --create-namespace
         --set engines.replicated.mayastor.enabled=false
         --set engines.local.zfs.enabled=false
-        --set engines.local.hostpath.enabled=false
+        --set engines.local.hostpath.enabled=true
         --set engines.local.lvm.enabled=true
+        --set loki.localpvScConfig.enabled=false
         --wait --timeout 5m
 
     - name: Deploy OpenEBS LVM StorageClass
