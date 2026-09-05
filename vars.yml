@@ -26,9 +26,11 @@ cilium_k8s_service_host: "{{ kube_apiserver_ip | default(hostvars[groups['kube_c
 cilium_k8s_service_port: "{{ kube_apiserver_port | default(6443) }}"
 
 # Enable endpoint routes for Cilium to cleanly forward packets across the Kata TAP interface
-# Note: Values in ConfigMap.data must be strings ("true", not true)
+# Note: Values in ConfigMap.data must be strings ("true", not true).
+# In YAML/Ansible, '"true"' preserves literal quotation marks so Helm/K8s ConfigMap
+# receives a string instead of an unmarshaled boolean.
 cilium_config_extra_vars:
-  enable-endpoint-routes: "true"
+  enable-endpoint-routes: '"true"'
 
 # Cilium operator must use hostNetwork during cluster bootstrap to prevent
 # chicken-and-egg deadlock before CNI IPAM is operational
@@ -36,6 +38,8 @@ cilium_operator_hostnetwork: true
 cilium_extra_values:
   operator:
     hostNetwork: true
+  endpointRoutes:
+    enabled: true
 
 # --- Kata Containers Base Installation ---
 # Installs kata-static release into /opt/kata and loads vhost_net/vhost_vsock modules
