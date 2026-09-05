@@ -1,0 +1,174 @@
+---
+# ==============================================================================
+# Setup OpenEBS LocalPV LVM CSI for Kata Containers + Firecracker (kata-fc)
+#
+# Firecracker does NOT support virtio-fs or directory sharing (overlayfs).
+# Persistent volumes must be exposed as block devices via virtio-blk.
+#
+# This playbook:
+# 1. Installs lvm2 utilities on worker nodes
+# 2. Configures an LVM Volume Group ('openebs-vg') using a specified disk or a
+#    persistent sparse loopback file
+# 3. Installs the OpenEBS LocalPV LVM CSI driver via Helm on the control plane
+# 4. Configures the 'openebs-lvm' StorageClass
+# ==============================================================================
+
+- name: Prepare LVM Storage on Nodes
+  hosts: kube_node:kube_control_plane
+  become: true
+  vars:
+    # Set openebs_lvm_device to a raw device (e.g. /dev/sdb) if you have a dedicated disk.
+    # If empty, a persistent sparse loopback file is automatically created.
+    openebs_lvm_device: ""
+    openebs_vg_name: openebs-vg
+    loop_img_path: /var/lib/openebs/lvm.img
+    loop_img_size_gb: 50
+
+  tasks:
+    - name: Install lvm2 utilities (Debian/Ubuntu)
+      apt:
+        name: lvm2
+        state: present
+        update_cache: true
+      when: ansible_os_family == 'Debian'
+
+    - name: Install lvm2 utilities (RHEL/CentOS/Rocky)
+      package:
+        name: lvm2
+        state: present
+      when: ansible_os_family == 'RedHat'
+
+    - name: Check if volume group already exists
+      command: vgs "{{ openebs_vg_name }}"
+      register: vg_check
+      failed_when: false
+      changed_when: false
+
+    - name: Setup LVM Volume Group from dedicated device
+      when:
+        - openebs_lvm_device != ""
+        - vg_check.rc != 0
+      block:
+        - name: Create Physical Volume
+          command: pvcreate -y "{{ openebs_lvm_device }}"
+
+        - name: Create Volume Group
+          command: vgcreate "{{ openebs_vg_name }}" "{{ openebs_lvm_device }}"
+
+    - name: Setup LVM Volume Group from sparse loopback file
+      when:
+        - openebs_lvm_device == ""
+        - vg_check.rc != 0
+      block:
+        - name: Create OpenEBS directory
+          file:
+            path: /var/lib/openebs
+            state: directory
+            mode: "0755"
+
+        - name: Create sparse backing image file
+          command: truncate -s {{ loop_img_size_gb }}G {{ loop_img_path }}
+          args:
+            creates: "{{ loop_img_path }}"
+
+        - name: Create systemd service for persistent loop device
+          copy:
+            dest: /etc/systemd/system/openebs-lvm-loop.service
+            mode: "0644"
+            content: |
+              [Unit]
+              Description=Setup Loop Device for OpenEBS LVM
+              DefaultDependencies=no
+              After=systemd-udev-settle.service
+              Before=local-fs.target lvm2-activation.service
+
+              [Service]
+              Type=oneshot
+              RemainAfterExit=yes
+              ExecStart=/bin/sh -c 'losetup -fP {{ loop_img_path }} && vgchange -ay {{ openebs_vg_name }} || true'
+              ExecStop=/bin/sh -c 'vgchange -an {{ openebs_vg_name }} || true'
+
+              [Install]
+              WantedBy=basic.target
+
+        - name: Reload systemd daemon
+          systemd:
+            daemon_reload: true
+
+        - name: Find free loop device or bind sparse file
+          shell: |
+            DEV=$(losetup -j {{ loop_img_path }} | cut -d: -f1 | head -n1)
+            if [ -z "$DEV" ]; then
+              losetup -fP {{ loop_img_path }}
+              DEV=$(losetup -j {{ loop_img_path }} | cut -d: -f1 | head -n1)
+            fi
+            echo "$DEV"
+          register: loop_device
+          changed_when: false
+
+        - name: Create Physical Volume on loop device
+          command: pvcreate -y "{{ loop_device.stdout }}"
+
+        - name: Create Volume Group on loop device
+          command: vgcreate "{{ openebs_vg_name }}" "{{ loop_device.stdout }}"
+
+        - name: Enable loop setup service on boot
+          systemd:
+            name: openebs-lvm-loop
+            enabled: true
+            state: started
+
+- name: Deploy OpenEBS LocalPV LVM CSI and StorageClass
+  hosts: kube_control_plane[0]
+  become: true
+  vars:
+    openebs_vg_name: openebs-vg
+    openebs_namespace: openebs
+
+  tasks:
+    - name: Check if Helm is installed
+      command: which helm
+      register: helm_check
+      failed_when: false
+      changed_when: false
+
+    - name: Install Helm if not present
+      when: helm_check.rc != 0
+      shell: |
+        curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+    - name: Add OpenEBS Helm repository
+      command: helm repo add openebs https://openebs.github.io/openebs
+
+    - name: Update Helm repositories
+      command: helm repo update
+
+    - name: Deploy OpenEBS Helm Chart with LocalPV LVM enabled
+      command: >
+        helm upgrade --install openebs openebs/openebs
+        --namespace {{ openebs_namespace }}
+        --create-namespace
+        --set engines.replicated.mayastor.enabled=false
+        --set engines.local.zfs.enabled=false
+        --set engines.local.hostpath.enabled=false
+        --set engines.local.lvm.enabled=true
+        --wait --timeout 5m
+
+    - name: Deploy OpenEBS LVM StorageClass
+      copy:
+        dest: /tmp/openebs-lvm-sc.yaml
+        mode: "0644"
+        content: |
+          apiVersion: storage.k8s.io/v1
+          kind: StorageClass
+          metadata:
+            name: openebs-lvm
+          provisioner: local.csi.openebs.io
+          allowVolumeExpansion: true
+          volumeBindingMode: WaitForFirstConsumer
+          parameters:
+            storage: "lvm"
+            volgroup: "{{ openebs_vg_name }}"
+
+    - name: Apply OpenEBS LVM StorageClass
+      command: kubectl apply -f /tmp/openebs-lvm-sc.yaml

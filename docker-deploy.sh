@@ -54,7 +54,7 @@ cp /tmp/ssh_key /root/.ssh/id_rsa
 chmod 600 /root/.ssh/id_rsa
 
 echo ""
-echo ">>> [Phase 1/3] Deploying Kubernetes Cluster (Cilium CNI + Kata Containers)..."
+echo ">>> [Phase 1/5] Deploying Kubernetes Cluster (Cilium CNI + Kata Containers)..."
 ansible-playbook -i /kata-fc-cilium/inventory.ini \
   cluster.yml \
   -b \
@@ -63,7 +63,7 @@ ansible-playbook -i /kata-fc-cilium/inventory.ini \
   "$@"
 
 echo ""
-echo ">>> [Phase 2/3] Setting up Devmapper Thin-Pool for Firecracker..."
+echo ">>> [Phase 2/5] Setting up Devmapper Thin-Pool for Firecracker..."
 ansible-playbook -i /kata-fc-cilium/inventory.ini \
   /kata-fc-cilium/setup-devmapper.yml \
   -b \
@@ -71,7 +71,23 @@ ansible-playbook -i /kata-fc-cilium/inventory.ini \
   "$@"
 
 echo ""
-echo ">>> [Phase 3/3] Applying kata-fc RuntimeClass and Verifying MicroVM Pod..."
+echo ">>> [Phase 3/5] Setting up OpenEBS LocalPV LVM CSI for Block Storage..."
+ansible-playbook -i /kata-fc-cilium/inventory.ini \
+  /kata-fc-cilium/setup-openebs-lvm.yml \
+  -b \
+  --private-key /root/.ssh/id_rsa \
+  "$@"
+
+echo ""
+echo ">>> [Phase 4/5] Deploying Kyverno, Agent Sandboxes, and Kata-FC Enforcement Policy..."
+ansible-playbook -i /kata-fc-cilium/inventory.ini \
+  /kata-fc-cilium/setup-agent-sandbox.yml \
+  -b \
+  --private-key /root/.ssh/id_rsa \
+  "$@"
+
+echo ""
+echo ">>> [Phase 5/5] Applying kata-fc RuntimeClass and Verifying MicroVM Pods..."
 ansible-playbook -i /kata-fc-cilium/inventory.ini \
   /kata-fc-cilium/verify.yml \
   -b \

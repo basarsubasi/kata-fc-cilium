@@ -1,0 +1,36 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: enforce-kata-fc-sandboxes
+  annotations:
+    policies.kyverno.io/title: Enforce Kata Firecracker on Sandboxes
+    policies.kyverno.io/description: Automatically assigns the kata-fc RuntimeClass and OpenEBS LVM storage to all Kampfire sandboxes.
+spec:
+  rules:
+  # 1. Enforce kata-fc RuntimeClass on Kampfire Sandbox Pods
+  - name: mutate-runtimeclass
+    match:
+      resources:
+        kinds:
+        - Pod
+        selector:
+          matchLabels:
+            agents.x-k8s.io/created-by: kampfire
+    mutate:
+      patchStrategicMerge:
+        spec:
+          +(runtimeClassName): kata-fc
+
+  # 2. Enforce OpenEBS LVM StorageClass on Kampfire PVCs
+  - name: mutate-sandbox-pvc
+    match:
+      resources:
+        kinds:
+        - PersistentVolumeClaim
+        selector:
+          matchLabels:
+            agents.x-k8s.io/created-by: kampfire
+    mutate:
+      patchStrategicMerge:
+        spec:
+          +(storageClassName): openebs-lvm

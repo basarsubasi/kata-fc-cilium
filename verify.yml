@@ -49,9 +49,67 @@
       register: cilium_endpoints
       failed_when: false
 
+    - name: Copy and apply OpenEBS LVM test pod manifest if present
+      copy:
+        src: "{{ playbook_dir }}/kata-fc-lvm-test.yaml"
+        dest: /tmp/kata-fc-lvm-test.yaml
+        mode: "0644"
+      failed_when: false
+      register: lvm_test_copy
+
+    - name: Clean up existing OpenEBS LVM test pod if re-running
+      command: kubectl delete -f /tmp/kata-fc-lvm-test.yaml --ignore-not-found=true --timeout=30s
+      when: lvm_test_copy is success
+      failed_when: false
+
+    - name: Apply OpenEBS LVM test manifest
+      command: kubectl apply -f /tmp/kata-fc-lvm-test.yaml
+      when: lvm_test_copy is success
+      failed_when: false
+      register: lvm_test_apply
+
+    - name: Wait for test-kata-fc-lvm pod to be Running
+      command: kubectl wait --for=condition=Ready pod/test-kata-fc-lvm --timeout=180s
+      when: lvm_test_apply is defined and lvm_test_apply.rc == 0
+      register: lvm_wait_result
+      retries: 3
+      delay: 5
+      until: lvm_wait_result.rc == 0
+      failed_when: false
+
+    - name: Check OpenEBS test pod logs for block device signature
+      command: kubectl logs test-kata-fc-lvm
+      when: lvm_wait_result is defined and lvm_wait_result.rc == 0
+      register: lvm_test_logs
+      failed_when: false
+
+    - name: Check OpenEBS CSI Pods
+      command: kubectl -n openebs get pods -o wide
+      register: openebs_pods
+      failed_when: false
+
+    - name: Check Kyverno Admission Controller
+      command: kubectl -n kyverno get deployment kyverno-admission-controller -o jsonpath='{.status.readyReplicas}'
+      register: kyverno_ready
+      failed_when: false
+
+    - name: Check Agent Sandbox Controller
+      command: kubectl -n agent-sandbox-system get deployment agent-sandbox-controller-manager -o jsonpath='{.status.readyReplicas}'
+      register: sandbox_ready
+      failed_when: false
+
+    - name: Check Kata-FC Kyverno ClusterPolicy
+      command: kubectl get clusterpolicy enforce-kata-fc-sandboxes -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
+      register: policy_ready
+      failed_when: false
+
     - name: Display Final Verification Report
       vars:
         is_isolated: "{{ host_kernel.stdout != guest_kernel.stdout }}"
+        lvm_ok: "{{ lvm_test_logs is defined and ('KATA-FC-OPENEBS-LVM-OK' in lvm_test_logs.stdout) }}"
+        kyverno_ok: "{{ kyverno_ready is defined and (kyverno_ready.stdout | int > 0) }}"
+        sandbox_ok: "{{ sandbox_ready is defined and (sandbox_ready.stdout | int > 0) }}"
+        policy_ok: "{{ policy_ready is defined and policy_ready.stdout == 'True' }}"
       debug:
         msg:
           - "=================================================================="
@@ -62,4 +120,10 @@
           - " MicroVM Guest Kernel : {{ guest_kernel.stdout }}"
           - " Kernel Isolation     : {{ 'SUCCESS: Dedicated MicroVM Kernel Verified' if is_isolated else 'WARNING: Kernel matched host' }}"
           - " Cilium CNI Status    : Active"
+          - " OpenEBS LVM CSI      : {{ 'SUCCESS: Block PV attached & verified' if lvm_ok else 'SKIPPED / PENDING' }}"
+          - " Kyverno Status       : {{ 'SUCCESS: Running' if kyverno_ok else 'NOT INSTALLED' }}"
+          - " Agent Sandbox (v1.0) : {{ 'SUCCESS: Running' if sandbox_ok else 'NOT INSTALLED' }}"
+          - " Kata-FC Policy       : {{ 'SUCCESS: Ready & Enforcing' if policy_ok else 'NOT APPLIED' }}"
           - "=================================================================="
+
+

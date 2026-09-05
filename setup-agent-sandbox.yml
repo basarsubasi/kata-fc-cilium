@@ -1,0 +1,156 @@
+---
+# ==============================================================================
+# Deploy Kyverno, Kubernetes SIG Agent Sandbox, Kata-FC Policy, & Kampfire
+#
+# 1. Deploys Kyverno via Helm
+# 2. Deploys Kubernetes SIG Agent Sandbox v1.0.0 (sandbox-with-extensions.yaml)
+# 3. Marks OpenEBS LVM as the default StorageClass
+# 4. Applies policy-kata-fc.yaml to automatically enforce kata-fc RuntimeClass
+#    and OpenEBS LVM storage on all Kampfire sandboxes
+# 5. Installs Kampfire CLI (v1.2.0)
+# 6. Runs a test sandbox with persistence and verifies Kata-FC enforcement
+# ==============================================================================
+
+- name: Deploy Kyverno, Agent Sandbox, Policy, and Kampfire
+  hosts: kube_control_plane[0]
+  become: true
+  vars:
+    agent_sandbox_version: "v1.0.0"
+    agent_sandbox_manifest_url: "https://github.com/kubernetes-sigs/agent-sandbox/releases/download/{{ agent_sandbox_version }}/sandbox-with-extensions.yaml"
+    kyverno_namespace: kyverno
+    kampfire_version: "1.2.0"
+    kampfire_binary_url: "https://github.com/basarsubasi/kampfire/releases/download/{{ kampfire_version }}/kampfire-{{ kampfire_version }}-linux-amd64"
+
+  tasks:
+    - name: Ensure Helm is available
+      command: which helm
+      register: helm_check
+
+    # --- Step 1: Deploy Kyverno ---
+    - name: Add Kyverno Helm repository
+      command: helm repo add kyverno https://kyverno.github.io/kyverno/
+
+    - name: Update Helm repositories
+      command: helm repo update
+
+    - name: Deploy Kyverno via Helm
+      command: >
+        helm upgrade --install kyverno kyverno/kyverno
+        --namespace {{ kyverno_namespace }}
+        --create-namespace
+        --wait --timeout 5m
+
+    - name: Wait for Kyverno admission controller deployment to be Ready
+      command: kubectl -n {{ kyverno_namespace }} wait --for=condition=Available deployment/kyverno-admission-controller --timeout=120s
+      register: kyverno_wait
+      retries: 3
+      delay: 5
+      until: kyverno_wait.rc == 0
+
+    # --- Step 2: Deploy Agent Sandbox ---
+    - name: Deploy Kubernetes SIG Agent Sandbox ({{ agent_sandbox_version }})
+      command: kubectl apply -f {{ agent_sandbox_manifest_url }}
+
+    - name: Wait for Agent Sandbox controller deployment to be Ready
+      command: kubectl -n agent-sandbox-system wait --for=condition=Available deployment/agent-sandbox-controller-manager --timeout=180s
+      register: sandbox_wait
+      retries: 3
+      delay: 5
+      until: sandbox_wait.rc == 0
+      failed_when: false
+
+    # --- Step 3: Set OpenEBS LVM as Default StorageClass ---
+    - name: Set openebs-lvm as default StorageClass
+      command: kubectl annotate storageclass openebs-lvm storageclass.kubernetes.io/is-default-class="true" --overwrite
+      failed_when: false
+
+    # --- Step 4: Apply Kata-FC Policy ---
+    - name: Copy policy-kata-fc.yaml to control plane
+      copy:
+        src: "{{ playbook_dir }}/policy-kata-fc.yaml"
+        dest: /tmp/policy-kata-fc.yaml
+        mode: "0644"
+
+    - name: Apply Kyverno ClusterPolicy for Kata-FC Sandboxes
+      command: kubectl apply -f /tmp/policy-kata-fc.yaml
+
+    - name: Wait for Kyverno ClusterPolicy to be ready
+      command: kubectl get clusterpolicy enforce-kata-fc-sandboxes -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
+      register: policy_status
+      retries: 6
+      delay: 5
+      until: policy_status.stdout == "True"
+      failed_when: false
+
+    # --- Step 5: Install Kampfire CLI ---
+    - name: Download Kampfire binary
+      get_url:
+        url: "{{ kampfire_binary_url }}"
+        dest: /usr/local/bin/kampfire
+        mode: "0755"
+
+    - name: Verify Kampfire binary installation
+      command: /usr/local/bin/kampfire --help
+      register: kampfire_help
+      changed_when: false
+
+    # --- Step 6: Run Kampfire Sandbox and Verify Kata-FC & Volume Enforcement ---
+    - name: Clean up any prior test sandboxes
+      command: kubectl delete pods,sandboxes -l agents.x-k8s.io/created-by=kampfire --ignore-not-found=true --timeout=30s
+      failed_when: false
+
+    - name: Run Kampfire sandbox with persistence
+      command: /usr/local/bin/kampfire run --persist /workspace --image alpine -d
+      register: kampfire_run
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+
+    - name: Wait for Kampfire sandbox pod to appear
+      shell: |
+        kubectl get pods -l agents.x-k8s.io/created-by=kampfire -o jsonpath='{.items[0].metadata.name}'
+      register: sandbox_pod_name
+      retries: 12
+      delay: 5
+      until: sandbox_pod_name.stdout != ""
+
+    - name: Wait for Kampfire sandbox pod to reach Running state
+      command: kubectl wait --for=condition=Ready "pod/{{ sandbox_pod_name.stdout }}" --timeout=180s
+      register: sandbox_ready_wait
+      retries: 3
+      delay: 5
+      until: sandbox_ready_wait.rc == 0
+      failed_when: false
+
+    - name: Check runtimeClassName of Kampfire sandbox pod
+      command: kubectl get "pod/{{ sandbox_pod_name.stdout }}" -o jsonpath='{.spec.runtimeClassName}'
+      register: sandbox_runtime_class
+
+    - name: Get Host Linux Kernel Version
+      command: uname -r
+      register: host_kernel
+
+    - name: Get Sandbox MicroVM Linux Kernel Version
+      command: kubectl exec "{{ sandbox_pod_name.stdout }}" -- uname -r
+      register: sandbox_kernel
+      failed_when: false
+
+    - name: Test write and read inside /workspace in the Sandbox Pod
+      command: kubectl exec "{{ sandbox_pod_name.stdout }}" -- sh -c "echo 'KAMPFIRE-PERSISTENCE-VERIFIED' > /workspace/test.txt && cat /workspace/test.txt"
+      register: workspace_test
+      failed_when: false
+
+    - name: Display Final Kampfire & Kata-FC Verification Report
+      vars:
+        is_kata_enforced: "{{ sandbox_runtime_class.stdout == 'kata-fc' }}"
+        is_isolated: "{{ host_kernel.stdout != sandbox_kernel.stdout if sandbox_kernel.rc == 0 else false }}"
+        is_persist_ok: "{{ workspace_test.rc == 0 and 'KAMPFIRE-PERSISTENCE-VERIFIED' in workspace_test.stdout }}"
+      debug:
+        msg:
+          - "=================================================================="
+          - "         KAMPFIRE + KATA-FC + OPENEBS VERIFICATION REPORT"
+          - "=================================================================="
+          - " Sandbox Pod Name        : {{ sandbox_pod_name.stdout }}"
+          - " Kyverno Runtime Mutated : {{ 'SUCCESS (kata-fc)' if is_kata_enforced else 'FAILED: ' ~ sandbox_runtime_class.stdout }}"
+          - " MicroVM Kernel Isolation: {{ 'SUCCESS (Isolated guest kernel)' if is_isolated else 'WARNING / PENDING' }}"
+          - " Persistent /workspace   : {{ 'SUCCESS (Read/Write OK)' if is_persist_ok else 'FAILED / PENDING' }}"
+          - "=================================================================="

@@ -8,27 +8,65 @@ This directory contains an end-to-end setup to deploy a Kubernetes cluster utili
 
 | File | Description |
 |------|-------------|
-| [`docker-deploy.sh`](file:///Users/basarsubasi/kubespray/kata-fc-cilium/docker-deploy.sh) | **One-click Docker deployment script** (Deploys, configures devmapper, applies manifests, and runs verification) |
-| [`verify.yml`](file:///Users/basarsubasi/kubespray/kata-fc-cilium/verify.yml) | Ansible playbook that applies `kata-fc` manifests, waits for pod, and verifies microVM kernel isolation & Cilium |
+| [`docker-deploy.sh`](file:///Users/basarsubasi/kubespray/kata-fc-cilium/docker-deploy.sh) | **One-click Docker deployment script** (Deploys cluster, devmapper, OpenEBS LVM CSI, Kyverno, Agent Sandbox, and verification) |
+| [`setup-devmapper.yml`](file:///Users/basarsubasi/kubespray/kata-fc-cilium/setup-devmapper.yml) | Ansible playbook configuring persistent devmapper thin-pools for Firecracker rootfs |
+| [`setup-openebs-lvm.yml`](file:///Users/basarsubasi/kubespray/kata-fc-cilium/setup-openebs-lvm.yml) | Ansible playbook provisioning LVM volume groups & deploying OpenEBS LocalPV LVM CSI |
+| [`setup-agent-sandbox.yml`](file:///Users/basarsubasi/kubespray/kata-fc-cilium/setup-agent-sandbox.yml) | Ansible playbook deploying Kyverno, Agent Sandbox v1.0.0, and the Kata-FC enforcement policy |
+| [`policy-kata-fc.yaml`](file:///Users/basarsubasi/kubespray/kata-fc-cilium/policy-kata-fc.yaml) | Kyverno ClusterPolicy mutating Kampfire sandboxes to use `kata-fc` and block volumes |
+| [`kata-fc-lvm-test.yaml`](file:///Users/basarsubasi/kubespray/kata-fc-cilium/kata-fc-lvm-test.yaml) | Manifest testing raw block PVC (`volumeMode: Block`) in a `kata-fc` microVM |
+| [`verify.yml`](file:///Users/basarsubasi/kubespray/kata-fc-cilium/verify.yml) | Ansible playbook verifying microVM kernel isolation, Cilium CNI, OpenEBS storage, Kyverno, and Agent Sandbox |
 | [`inventory.ini`](file:///Users/basarsubasi/kubespray/kata-fc-cilium/inventory.ini) | Node inventory definition (control plane, etcd, worker nodes) |
 | [`vars.yml`](file:///Users/basarsubasi/kubespray/kata-fc-cilium/vars.yml) | Kubespray extra-vars (containerd, Cilium, Kata, `kata-fc`, devmapper snapshotter) |
-| [`setup-devmapper.yml`](file:///Users/basarsubasi/kubespray/kata-fc-cilium/setup-devmapper.yml) | Ansible playbook configuring persistent devmapper thin-pools for Firecracker |
-| [`deploy.sh`](file:///Users/basarsubasi/kubespray/kata-fc-cilium/deploy.sh) | Local bash script for running all 3 phases directly with host Python/Ansible |
-| [`kata-fc-runtimeclass.yaml`](file:///Users/basarsubasi/kubespray/kata-fc-cilium/kata-fc-runtimeclass.yaml) | Kubernetes manifest defining the `kata-fc` `RuntimeClass` and a test pod |
+| [`kata-fc-runtimeclass.yaml`](file:///Users/basarsubasi/kubespray/kata-fc-cilium/kata-fc-runtimeclass.yaml) | Kubernetes manifest defining the `kata-fc` `RuntimeClass` and baseline test pod |
+
 
 ---
 
 ## How Storage Is Handled: Firecracker vs Virtio-FS
 
 > [!IMPORTANT]
-> **Why Devmapper is Required for Firecracker:**
-> Unlike QEMU and Cloud-Hypervisor, **Firecracker does NOT support `virtio-fs` or directory sharing (`overlayfs`)**. Firecracker only mounts filesystems inside the guest microVM via direct raw block devices (`virtio-blk`).
+> **Why Devmapper and OpenEBS LocalPV LVM are Required for Firecracker:**
+> Unlike QEMU and Cloud-Hypervisor, **Firecracker does NOT support `virtio-fs` or directory sharing (`overlayfs`)**. Firecracker can only mount storage inside the guest microVM via direct raw block devices (`virtio-blk`).
 >
-> To make this work seamlessly:
-> 1. In [`vars.yml`](file:///Users/basarsubasi/kubespray/kata-fc-cilium/vars.yml), containerd is configured with `containerd_snapshotter: devmapper`.
-> 2. The included [`setup-devmapper.yml`](file:///Users/basarsubasi/kubespray/kata-fc-cilium/setup-devmapper.yml) playbook provisions a sparse thin-pool (`containerd-pool`) on all worker nodes, registers a persistent systemd service (`containerd-devmapper.service`) across reboots, and configures the containerd devmapper plugin block.
+> 1. **Container Rootfs (Images):** Handled by `devmapper` snapshotter in containerd ([`setup-devmapper.yml`](file:///Users/basarsubasi/kubespray/kata-fc-cilium/setup-devmapper.yml)).
+> 2. **Persistent Volumes (CSI):** Handled by **OpenEBS LocalPV LVM** ([`setup-openebs-lvm.yml`](file:///Users/basarsubasi/kubespray/kata-fc-cilium/setup-openebs-lvm.yml)), which allocates raw LVM logical volumes and connects them over `virtio-blk` to the microVM using `volumeMode: Block`.
+>
+> *(Note: If you prefer lightweight Rust-based microVMs with standard `overlayfs`, directory bind-mounts, and standard CSI drivers, consider **Cloud-Hypervisor (`kata-clh`)**, which is also included in the Kata bundle and supports `virtio-fs` natively).*
 
-*(Note: If you prefer to use lightweight Rust-based microVMs with the standard `overlayfs` and `virtio-fs` instead of block devices, consider **Cloud-Hypervisor (`kata-clh`)**, which is also included in the Kata bundle and supports virtio-fs natively).*
+### Using Persistent Volumes in `kata-fc` Pods
+
+Because Firecracker receives storage as raw block devices, PVCs must specify `volumeMode: Block`:
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: my-block-pvc
+spec:
+  accessModes: [ "ReadWriteOnce" ]
+  volumeMode: Block              # Direct block device for virtio-blk
+  storageClassName: openebs-lvm
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: my-kata-pod
+spec:
+  runtimeClassName: kata-fc
+  containers:
+    - name: app
+      image: alpine
+      volumeDevices:             # Map block device directly into guest
+        - name: my-storage
+          devicePath: /dev/xvda
+  volumes:
+    - name: my-storage
+      persistentVolumeClaim:
+        claimName: my-block-pvc
+```
 
 ---
 
@@ -61,8 +99,29 @@ This is the cleanest method—no local Python or Ansible installations are neede
    *The script will automatically:*
    - Inject your SSH key and this configuration folder into the official Kubespray container.
    - **Phase 1:** Deploy the Kubernetes cluster with Cilium CNI and Kata Containers.
-   - **Phase 2:** Configure the devmapper thin-pool on worker nodes for Firecracker.
-   - **Phase 3:** Apply the `kata-fc` `RuntimeClass`, spawn `test-kata-fc`, and verify that the microVM kernel is distinct from the host kernel.
+   - **Phase 2:** Configure the devmapper thin-pool on worker nodes for Firecracker container images.
+   - **Phase 3:** Provision LVM storage and deploy the OpenEBS LocalPV LVM CSI driver via Helm.
+   - **Phase 4:** Deploy Kyverno, Agent Sandbox v1.0.0, apply `policy-kata-fc.yaml`, install Kampfire CLI, and run sandbox verification.
+   - **Phase 5:** Run full cluster verification report.
+
+---
+
+## Agent Sandbox, Kyverno Policy & Kampfire CLI
+
+All sandboxes created by **Kampfire** (stamped with label `agents.x-k8s.io/created-by: kampfire`) are intercepted by Kyverno via [`policy-kata-fc.yaml`](file:///Users/basarsubasi/kubespray/kata-fc-cilium/policy-kata-fc.yaml):
+1. **Runtime Isolation:** Automatically mutates `spec.runtimeClassName: kata-fc` to boot the sandbox in a hardware-isolated Firecracker microVM.
+2. **OpenEBS LVM CSI Storage:** Associated PVCs are automatically routed to `storageClassName: openebs-lvm`.
+
+### Running Sandboxes with Kampfire:
+```bash
+# Launch a detached alpine sandbox with persistent /workspace
+kampfire run --persist /workspace --image alpine -d
+
+# Check that the pod was mutated to use kata-fc
+kubectl get pods -l agents.x-k8s.io/created-by=kampfire -o custom-columns=NAME:.metadata.name,RUNTIME:.spec.runtimeClassName,STATUS:.status.phase
+```
+
+
 
 ---
 
