@@ -64,7 +64,52 @@
       command: kubectl annotate storageclass openebs-lvm storageclass.kubernetes.io/is-default-class="true" --overwrite
       failed_when: false
 
-    # --- Step 4: Apply Kata-FC Policy ---
+    # --- Step 4: Grant Kyverno RBAC for Cilium & Apply Kata-FC Policy ---
+    - name: Grant Kyverno controllers RBAC for CiliumNetworkPolicies
+      copy:
+        dest: /tmp/kyverno-cilium-rbac.yaml
+        mode: "0644"
+        content: |
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRole
+          metadata:
+            name: kyverno:cilium-generate-role
+            labels:
+              app.kubernetes.io/part-of: kyverno
+          rules:
+          - apiGroups:
+            - cilium.io
+            resources:
+            - ciliumnetworkpolicies
+            - ciliumnetworkpolicies/status
+            verbs:
+            - get
+            - list
+            - watch
+            - create
+            - update
+            - patch
+            - delete
+          ---
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            name: kyverno:cilium-generate-binding
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: kyverno:cilium-generate-role
+          subjects:
+          - kind: ServiceAccount
+            name: kyverno-admission-controller
+            namespace: "{{ kyverno_namespace }}"
+          - kind: ServiceAccount
+            name: kyverno-background-controller
+            namespace: "{{ kyverno_namespace }}"
+
+    - name: Apply Kyverno Cilium RBAC
+      command: kubectl apply -f /tmp/kyverno-cilium-rbac.yaml
+
     - name: Copy policy-kata-fc.yaml to control plane
       copy:
         src: "{{ playbook_dir }}/policy-kata-fc.yaml"
