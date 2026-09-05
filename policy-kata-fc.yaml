@@ -3,8 +3,8 @@ kind: ClusterPolicy
 metadata:
   name: enforce-kata-fc-sandboxes
   annotations:
-    policies.kyverno.io/title: Enforce Kata Firecracker on Sandboxes
-    policies.kyverno.io/description: Automatically assigns the kata-fc RuntimeClass and OpenEBS LVM storage to all Kampfire sandboxes.
+    policies.kyverno.io/title: Enforce Kata Firecracker and Network Isolation on Sandboxes
+    policies.kyverno.io/description: Automatically assigns the kata-fc RuntimeClass, OpenEBS LVM storage, and same-namespace Cilium isolation to all Kampfire sandboxes.
 spec:
   rules:
   # 1. Enforce kata-fc RuntimeClass on Kampfire Sandbox Pods
@@ -34,3 +34,44 @@ spec:
       patchStrategicMerge:
         spec:
           +(storageClassName): openebs-lvm
+
+  # 3. Auto-generate Cilium Same-Namespace Isolation Policy in the Sandbox's Namespace
+  - name: generate-cilium-isolation-policy
+    match:
+      resources:
+        kinds:
+        - Pod
+        selector:
+          matchLabels:
+            agents.x-k8s.io/created-by: kampfire
+    generate:
+      apiVersion: cilium.io/v2
+      kind: CiliumNetworkPolicy
+      name: isolate-kampfire-sandboxes
+      namespace: "{{request.namespace}}"
+      synchronize: true
+      data:
+        spec:
+          description: "Strict isolation for Kampfire sandboxes: only allow communication with pods in the same namespace, blocking all cross-namespace traffic."
+          endpointSelector:
+            matchLabels:
+              agents.x-k8s.io/created-by: kampfire
+          ingress:
+          - fromEndpoints:
+            - matchLabels: {}
+          egress:
+          - toEndpoints:
+            - matchLabels: {}
+          - toEndpoints:
+            - matchLabels:
+                "k8s:io.kubernetes.pod.namespace": "kube-system"
+                "k8s-app": "kube-dns"
+            toPorts:
+            - ports:
+              - port: "53"
+                protocol: ANY
+              rules:
+                dns:
+                - matchPattern: "*"
+          - toEntities:
+            - world

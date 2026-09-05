@@ -12,7 +12,7 @@ This directory contains an end-to-end setup to deploy a Kubernetes cluster utili
 | [`setup-devmapper.yml`](file:///Users/basarsubasi/kubespray/kata-fc-cilium/setup-devmapper.yml) | Ansible playbook configuring persistent devmapper thin-pools for Firecracker rootfs |
 | [`setup-openebs-lvm.yml`](file:///Users/basarsubasi/kubespray/kata-fc-cilium/setup-openebs-lvm.yml) | Ansible playbook provisioning LVM volume groups & deploying OpenEBS LocalPV LVM CSI |
 | [`setup-agent-sandbox.yml`](file:///Users/basarsubasi/kubespray/kata-fc-cilium/setup-agent-sandbox.yml) | Ansible playbook deploying Kyverno, Agent Sandbox v1.0.0, and the Kata-FC enforcement policy |
-| [`policy-kata-fc.yaml`](file:///Users/basarsubasi/kubespray/kata-fc-cilium/policy-kata-fc.yaml) | Kyverno ClusterPolicy mutating Kampfire sandboxes to use `kata-fc` and block volumes |
+| [`policy-kata-fc.yaml`](file:///Users/basarsubasi/kubespray/kata-fc-cilium/policy-kata-fc.yaml) | Kyverno ClusterPolicy mutating Kampfire sandboxes (kata-fc runtime, OpenEBS LVM storage, and auto-generated Cilium same-namespace isolation) |
 | [`kata-fc-lvm-test.yaml`](file:///Users/basarsubasi/kubespray/kata-fc-cilium/kata-fc-lvm-test.yaml) | Manifest testing raw block PVC (`volumeMode: Block`) in a `kata-fc` microVM |
 | [`verify.yml`](file:///Users/basarsubasi/kubespray/kata-fc-cilium/verify.yml) | Ansible playbook verifying microVM kernel isolation, Cilium CNI, OpenEBS storage, Kyverno, and Agent Sandbox |
 | [`inventory.ini`](file:///Users/basarsubasi/kubespray/kata-fc-cilium/inventory.ini) | Node inventory definition (control plane, etcd, worker nodes) |

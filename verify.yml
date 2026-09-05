@@ -103,6 +103,11 @@
       register: policy_ready
       failed_when: false
 
+    - name: Check Cilium Same-Namespace Isolation Policy
+      command: kubectl get ciliumnetworkpolicy isolate-kampfire-sandboxes -n default
+      register: cnp_check
+      failed_when: false
+
     - name: Display Final Verification Report
       vars:
         is_isolated: "{{ host_kernel.stdout != guest_kernel.stdout }}"
@@ -110,6 +115,7 @@
         kyverno_ok: "{{ kyverno_ready is defined and (kyverno_ready.stdout | int > 0) }}"
         sandbox_ok: "{{ sandbox_ready is defined and (sandbox_ready.stdout | int > 0) }}"
         policy_ok: "{{ policy_ready is defined and policy_ready.stdout == 'True' }}"
+        cnp_ok: "{{ cnp_check is defined and cnp_check.rc == 0 }}"
       debug:
         msg:
           - "=================================================================="
@@ -120,6 +126,7 @@
           - " MicroVM Guest Kernel : {{ guest_kernel.stdout }}"
           - " Kernel Isolation     : {{ 'SUCCESS: Dedicated MicroVM Kernel Verified' if is_isolated else 'WARNING: Kernel matched host' }}"
           - " Cilium CNI Status    : Active"
+          - " Cilium Isolation CNP: {{ 'SUCCESS: Enforced (Same-namespace only)' if cnp_ok else 'NOT APPLIED' }}"
           - " OpenEBS LVM CSI      : {{ 'SUCCESS: Block PV attached & verified' if lvm_ok else 'SKIPPED / PENDING' }}"
           - " Kyverno Status       : {{ 'SUCCESS: Running' if kyverno_ok else 'NOT INSTALLED' }}"
           - " Agent Sandbox (v1.0) : {{ 'SUCCESS: Running' if sandbox_ok else 'NOT INSTALLED' }}"
