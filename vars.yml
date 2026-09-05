@@ -30,6 +30,13 @@ cilium_k8s_service_port: "{{ kube_apiserver_port | default(6443) }}"
 cilium_config_extra_vars:
   enable-endpoint-routes: "true"
 
+# Cilium operator must use hostNetwork during cluster bootstrap to prevent
+# chicken-and-egg deadlock before CNI IPAM is operational
+cilium_operator_hostnetwork: true
+cilium_extra_values:
+  operator:
+    hostNetwork: true
+
 # --- Kata Containers Base Installation ---
 # Installs kata-static release into /opt/kata and loads vhost_net/vhost_vsock modules
 kata_containers_enabled: true
