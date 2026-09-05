@@ -26,8 +26,9 @@ cilium_k8s_service_host: "{{ kube_apiserver_ip | default(hostvars[groups['kube_c
 cilium_k8s_service_port: "{{ kube_apiserver_port | default(6443) }}"
 
 # Enable endpoint routes for Cilium to cleanly forward packets across the Kata TAP interface
+# Note: Values in ConfigMap.data must be strings ("true", not true)
 cilium_config_extra_vars:
-  enable-endpoint-routes: true
+  enable-endpoint-routes: "true"
 
 # --- Kata Containers Base Installation ---
 # Installs kata-static release into /opt/kata and loads vhost_net/vhost_vsock modules
