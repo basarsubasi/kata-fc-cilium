@@ -7,29 +7,31 @@ metadata:
     policies.kyverno.io/description: Automatically assigns the kata-fc RuntimeClass, OpenEBS LVM storage, and same-namespace Cilium isolation to all Kampfire sandboxes.
 spec:
   rules:
-  # 1. Enforce kata-fc RuntimeClass on Kampfire Sandbox Pods
+  # 1. Enforce kata-fc RuntimeClass on Agent Sandbox Pods
   - name: mutate-runtimeclass
     match:
       resources:
         kinds:
         - Pod
         selector:
-          matchLabels:
-            agents.x-k8s.io/created-by: kampfire
+          matchExpressions:
+          - key: agents.x-k8s.io/sandbox-name-hash
+            operator: Exists
     mutate:
       patchStrategicMerge:
         spec:
           +(runtimeClassName): kata-fc
 
-  # 2. Enforce OpenEBS LVM StorageClass on Kampfire PVCs
+  # 2. Enforce OpenEBS LVM StorageClass on Agent Sandbox PVCs
   - name: mutate-sandbox-pvc
     match:
       resources:
         kinds:
         - PersistentVolumeClaim
         selector:
-          matchLabels:
-            agents.x-k8s.io/created-by: kampfire
+          matchExpressions:
+          - key: agents.x-k8s.io/sandbox-name-hash
+            operator: Exists
     mutate:
       patchStrategicMerge:
         spec:
@@ -42,8 +44,9 @@ spec:
         kinds:
         - Pod
         selector:
-          matchLabels:
-            agents.x-k8s.io/created-by: kampfire
+          matchExpressions:
+          - key: agents.x-k8s.io/sandbox-name-hash
+            operator: Exists
     generate:
       apiVersion: cilium.io/v2
       kind: CiliumNetworkPolicy
@@ -52,10 +55,11 @@ spec:
       synchronize: true
       data:
         spec:
-          description: "Strict isolation for Kampfire sandboxes: only allow communication with pods in the same namespace, blocking all cross-namespace traffic."
+          description: "Strict isolation for Agent sandboxes: only allow communication with pods in the same namespace, blocking all cross-namespace traffic."
           endpointSelector:
-            matchLabels:
-              agents.x-k8s.io/created-by: kampfire
+            matchExpressions:
+            - key: agents.x-k8s.io/sandbox-name-hash
+              operator: Exists
           ingress:
           - fromEndpoints:
             - matchLabels: {}
