@@ -15,6 +15,16 @@ containerd_snapshotter: devmapper
 kube_network_plugin: cilium
 kube_owner: root
 
+# Remove standard kube-proxy DaemonSet
+kube_proxy_remove: true
+
+# Enable Cilium native eBPF Kube-Proxy Replacement
+cilium_kube_proxy_replacement: true
+
+# Direct API server endpoint for Cilium agent bootstrapping (required without kube-proxy)
+cilium_k8s_service_host: "{{ kube_apiserver_ip | default(hostvars[groups['kube_control_plane'][0]]['ip'] | default(hostvars[groups['kube_control_plane'][0]]['ansible_host'])) }}"
+cilium_k8s_service_port: "{{ kube_apiserver_port | default(6443) }}"
+
 # Enable endpoint routes for Cilium to cleanly forward packets across the Kata TAP interface
 cilium_config_extra_vars:
   enable-endpoint-routes: true
