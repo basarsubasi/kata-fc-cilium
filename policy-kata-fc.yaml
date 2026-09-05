@@ -64,18 +64,28 @@ spec:
           - fromEndpoints:
             - matchLabels: {}
           egress:
+          # 1. Allow communication with pods in the same namespace
           - toEndpoints:
             - matchLabels: {}
+
+          # 2. Allow DNS to cluster DNS (CoreDNS in kube-system)
           - toEndpoints:
             - matchLabels:
                 "k8s:io.kubernetes.pod.namespace": "kube-system"
-                "k8s-app": "kube-dns"
             toPorts:
             - ports:
               - port: "53"
                 protocol: ANY
-              rules:
-                dns:
-                - matchPattern: "*"
+
+          # 3. Allow DNS to nodelocaldns (169.254.25.10 / host)
+          - toEntities:
+            - host
+            - remote-node
+            toPorts:
+            - ports:
+              - port: "53"
+                protocol: ANY
+
+          # 4. Allow full outbound Internet access (HTTP, HTTPS, git, external APIs)
           - toEntities:
             - world
