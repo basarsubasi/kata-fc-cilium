@@ -104,6 +104,7 @@
       register: kampfire_run
       environment:
         KUBECONFIG: /etc/kubernetes/admin.conf
+        KAMPFIRE_KUBECONFIG: /etc/kubernetes/admin.conf
 
     - name: Wait for Kampfire sandbox pod to appear
       shell: |
