@@ -128,11 +128,20 @@
         fi
       changed_when: false
 
-    - name: Set containerd CRI snapshotter to devmapper
+    - name: Set containerd CRI snapshotter to devmapper and configure unpack_platforms
       replace:
         path: /etc/containerd/config.toml
         regexp: 'snapshotter\s*=\s*"overlayfs"'
-        replace: 'snapshotter = "devmapper"'
+        replace: "snapshotter = \"devmapper\"\n    unpack_platforms = [\"linux/amd64\"]"
+      when: containerd_conf.stat.exists
+      notify: Restart containerd
+
+    - name: Ensure unpack_platforms is present for containerd 2.x devmapper
+      lineinfile:
+        path: /etc/containerd/config.toml
+        insertafter: '^\s*snapshotter\s*=\s*"devmapper"'
+        line: '    unpack_platforms = ["linux/amd64"]'
+        state: present
       when: containerd_conf.stat.exists
       notify: Restart containerd
 
