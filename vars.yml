@@ -57,4 +57,4 @@ containerd_additional_runtimes:
     type: "io.containerd.kata.v2"
     engine: "/opt/kata/bin/containerd-shim-kata-v2"
     options:
-      ConfigPath: "/opt/kata/share/kata-containers/defaults/configuration-fc.toml"
+      ConfigPath: "/opt/kata/share/defaults/kata-containers/configuration-fc.toml"
