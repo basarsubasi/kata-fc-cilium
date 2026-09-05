@@ -131,6 +131,12 @@
             root_path = "{{ devmapper_dir }}"
             base_image_size = "{{ base_image_size }}"
             discard_blocks = true
+
+          [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.kata-fc]
+            runtime_type = "io.containerd.kata.v2"
+            snapshotter = "devmapper"
+            [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.kata-fc.options]
+              ConfigPath = "/opt/kata/share/kata-containers/defaults/configuration-fc.toml"
       when: containerd_conf.stat.exists
       notify: Restart containerd
 

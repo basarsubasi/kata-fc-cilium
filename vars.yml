@@ -6,10 +6,10 @@
 # --- Container Engine & Snapshotter ---
 container_manager: containerd
 
-# Firecracker does NOT support virtio-fs or overlayfs directory mounts.
-# Container rootfs must be passed as block devices via the devmapper snapshotter.
-# Run 'setup-devmapper.yml' to initialize the thin-pool before or after deployment.
-containerd_snapshotter: devmapper
+# Firecracker microVMs use the devmapper snapshotter for rootfs block devices.
+# The default cluster snapshotter remains overlayfs for control plane & standard pods.
+# Devmapper is initialized and configured in setup-devmapper.yml.
+containerd_snapshotter: overlayfs
 
 # --- CNI Plugin: Cilium ---
 kube_network_plugin: cilium
