@@ -17,9 +17,6 @@
   hosts: kube_node:kube_control_plane
   become: true
   vars:
-    # Uses openebs_lvm_device from inventory.ini (e.g. /dev/sdb) if defined.
-    # Falls back to empty string (sparse loopback file) only if unset.
-    openebs_lvm_device: "{{ openebs_lvm_device | default('') }}"
     openebs_vg_name: openebs-vg
     loop_img_path: /var/lib/openebs/lvm.img
     loop_img_size_gb: 50
@@ -52,7 +49,7 @@
 
     - name: Migrate volume group from loopback to dedicated disk if configured
       when:
-        - openebs_lvm_device != ""
+        - (openebs_lvm_device | default('')) != ""
         - current_pv.stdout is defined
         - "'/dev/loop' in current_pv.stdout"
       block:
@@ -82,7 +79,7 @@
 
     - name: Setup LVM Volume Group from dedicated device
       when:
-        - openebs_lvm_device != ""
+        - (openebs_lvm_device | default('')) != ""
         - vg_check_after.rc != 0
       block:
         - name: Create Physical Volume
@@ -93,7 +90,7 @@
 
     - name: Setup LVM Volume Group from sparse loopback file
       when:
-        - openebs_lvm_device == ""
+        - (openebs_lvm_device | default('')) == ""
         - vg_check_after.rc != 0
       block:
         - name: Create OpenEBS directory
