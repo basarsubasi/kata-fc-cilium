@@ -152,8 +152,10 @@
         --set engines.local.zfs.enabled=false
         --set engines.local.hostpath.enabled=true
         --set engines.local.lvm.enabled=true
-        --set loki.localpvScConfig.enabled=false
-        --wait --timeout 5m
+        --set loki.enabled=false
+        --set minio.enabled=false
+        --set alloy.enabled=false
+        --wait --timeout 2m
 
     - name: Deploy OpenEBS LVM StorageClass
       copy:
