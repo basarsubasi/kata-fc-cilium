@@ -128,6 +128,14 @@
         fi
       changed_when: false
 
+    - name: Set containerd CRI snapshotter to devmapper
+      replace:
+        path: /etc/containerd/config.toml
+        regexp: 'snapshotter\s*=\s*"overlayfs"'
+        replace: 'snapshotter = "devmapper"'
+      when: containerd_conf.stat.exists
+      notify: Restart containerd
+
     - name: Add devmapper snapshotter configuration block to containerd
       blockinfile:
         path: /etc/containerd/config.toml
@@ -139,6 +147,15 @@
             base_image_size = "{{ base_image_size }}"
             discard_blocks = true
 
+          # containerd 2.x / CRI v1
+          [plugins."io.containerd.cri.v1.runtime".containerd.runtimes.kata-fc]
+            runtime_type = "io.containerd.kata.v2"
+            runtime_path = "/opt/kata/bin/containerd-shim-kata-v2"
+            snapshotter = "devmapper"
+            [plugins."io.containerd.cri.v1.runtime".containerd.runtimes.kata-fc.options]
+              ConfigPath = "/opt/kata/share/defaults/kata-containers/configuration-fc.toml"
+
+          # containerd 1.7 / legacy CRI
           [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.kata-fc]
             runtime_type = "io.containerd.kata.v2"
             runtime_path = "/opt/kata/bin/containerd-shim-kata-v2"
