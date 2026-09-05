@@ -128,13 +128,11 @@
         fi
       changed_when: false
 
-    - name: Configure containerd CRI images to use devmapper with local image pull
-      replace:
-        path: /etc/containerd/config.toml
-        regexp: '\[plugins\."io\.containerd\.cri\.v1\.images"\]'
-        replace: "[plugins.\"io.containerd.cri.v1.images\"]\n    use_local_image_pull = true"
+    - name: Remove any duplicate use_local_image_pull entries
+      shell: |
+        awk '!seen[$0]++' /etc/containerd/config.toml > /etc/containerd/config.toml.tmp && mv /etc/containerd/config.toml.tmp /etc/containerd/config.toml
       when: containerd_conf.stat.exists
-      notify: Restart containerd
+      changed_when: false
 
     - name: Set containerd CRI snapshotter to devmapper
       replace:
@@ -149,6 +147,7 @@
         path: /etc/containerd/config.toml
         insertafter: '\[plugins\."io\.containerd\.cri\.v1\.images"\]'
         line: '    use_local_image_pull = true'
+        regexp: '^\s*use_local_image_pull\s*='
         state: present
       when: containerd_conf.stat.exists
       notify: Restart containerd
