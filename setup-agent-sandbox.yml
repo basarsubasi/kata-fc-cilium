@@ -116,6 +116,10 @@
         dest: /tmp/policy-kata-fc.yaml
         mode: "0644"
 
+    - name: Remove any previous ClusterPolicy to allow immutable generate rule updates
+      command: kubectl delete clusterpolicy enforce-kata-fc-sandboxes --ignore-not-found=true
+      failed_when: false
+
     - name: Apply Kyverno ClusterPolicy for Kata-FC Sandboxes
       command: kubectl apply -f /tmp/policy-kata-fc.yaml
 
