@@ -121,6 +121,13 @@
         path: /etc/containerd/config.toml
       register: containerd_conf
 
+    - name: Ensure Kata Containers binaries are in system PATH
+      shell: |
+        if [ -d /opt/kata/bin ]; then
+          ln -sf /opt/kata/bin/* /usr/local/bin/
+        fi
+      changed_when: false
+
     - name: Add devmapper snapshotter configuration block to containerd
       blockinfile:
         path: /etc/containerd/config.toml
@@ -134,6 +141,7 @@
 
           [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.kata-fc]
             runtime_type = "io.containerd.kata.v2"
+            runtime_path = "/opt/kata/bin/containerd-shim-kata-v2"
             snapshotter = "devmapper"
             [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.kata-fc.options]
               ConfigPath = "/opt/kata/share/kata-containers/defaults/configuration-fc.toml"
