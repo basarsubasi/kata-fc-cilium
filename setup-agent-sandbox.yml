@@ -52,12 +52,11 @@
       command: kubectl apply -f {{ agent_sandbox_manifest_url }}
 
     - name: Wait for Agent Sandbox controller deployment to be Ready
-      command: kubectl -n agent-sandbox-system wait --for=condition=Available deployment/agent-sandbox-controller-manager --timeout=180s
+      command: kubectl -n agent-sandbox-system wait --for=condition=Available deployment/agent-sandbox-controller --timeout=180s
       register: sandbox_wait
       retries: 3
       delay: 5
       until: sandbox_wait.rc == 0
-      failed_when: false
 
     # --- Step 3: Set OpenEBS LVM as Default StorageClass ---
     - name: Set openebs-lvm as default StorageClass

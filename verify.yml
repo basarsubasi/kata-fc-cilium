@@ -160,7 +160,7 @@
       failed_when: false
 
     - name: Check Agent Sandbox Controller
-      command: kubectl -n agent-sandbox-system get deployment agent-sandbox-controller-manager -o jsonpath='{.status.readyReplicas}'
+      command: kubectl -n agent-sandbox-system get deployment agent-sandbox-controller -o jsonpath='{.status.readyReplicas}'
       register: sandbox_ready
       failed_when: false
 
