@@ -71,6 +71,16 @@
           args:
             creates: "{{ loop_img_path }}"
 
+        - name: Clean up duplicate loop device attachments if present
+          shell: |
+            DEVS=($(losetup -j {{ loop_img_path }} | cut -d: -f1))
+            if [ ${#DEVS[@]} -gt 1 ]; then
+              for ((i=1; i<${#DEVS[@]}; i++)); do
+                losetup -d "${DEVS[i]}" || true
+              done
+            fi
+          changed_when: false
+
         - name: Create systemd service for persistent loop device
           copy:
             dest: /etc/systemd/system/openebs-lvm-loop.service
@@ -85,7 +95,7 @@
               [Service]
               Type=oneshot
               RemainAfterExit=yes
-              ExecStart=/bin/sh -c 'losetup -fP {{ loop_img_path }} && vgchange -ay {{ openebs_vg_name }} || true'
+              ExecStart=/bin/sh -c 'losetup -j {{ loop_img_path }} | grep -q "{{ loop_img_path }}" || losetup -fP {{ loop_img_path }}; vgchange -ay {{ openebs_vg_name }} || true'
               ExecStop=/bin/sh -c 'vgchange -an {{ openebs_vg_name }} || true'
 
               [Install]
@@ -99,8 +109,7 @@
           shell: |
             DEV=$(losetup -j {{ loop_img_path }} | cut -d: -f1 | head -n1)
             if [ -z "$DEV" ]; then
-              losetup -fP {{ loop_img_path }}
-              DEV=$(losetup -j {{ loop_img_path }} | cut -d: -f1 | head -n1)
+              DEV=$(losetup -fP --show {{ loop_img_path }})
             fi
             echo "$DEV"
           register: loop_device
