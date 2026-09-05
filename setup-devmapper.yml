@@ -139,3 +139,26 @@
       systemd:
         name: containerd
         state: restarted
+
+- name: Register kata-fc RuntimeClass in Kubernetes
+  hosts: kube_control_plane[0]
+  become: true
+  tasks:
+    - name: Deploy kata-fc RuntimeClass manifest
+      copy:
+        dest: /tmp/kata-fc-runtimeclass.yaml
+        mode: "0644"
+        content: |
+          apiVersion: node.k8s.io/v1
+          kind: RuntimeClass
+          metadata:
+            name: kata-fc
+          handler: kata-fc
+          overhead:
+            podFixed:
+              cpu: 100m
+              memory: 130Mi
+
+    - name: Apply kata-fc RuntimeClass
+      command: kubectl apply -f /tmp/kata-fc-runtimeclass.yaml
+

@@ -16,11 +16,34 @@
       command: kubectl delete pod test-kata-fc --ignore-not-found=true --timeout=30s
       failed_when: false
 
-    - name: Copy kata-fc RuntimeClass & test pod manifest to control plane
+    - name: Generate kata-fc RuntimeClass and test pod manifest
       copy:
-        src: "{{ playbook_dir }}/kata-fc-runtimeclass.yaml"
         dest: /tmp/kata-fc-runtimeclass.yaml
         mode: "0644"
+        content: |
+          apiVersion: node.k8s.io/v1
+          kind: RuntimeClass
+          metadata:
+            name: kata-fc
+          handler: kata-fc
+          overhead:
+            podFixed:
+              cpu: 100m
+              memory: 130Mi
+          ---
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: test-kata-fc
+            labels:
+              app: test-kata-fc
+          spec:
+            runtimeClassName: kata-fc
+            containers:
+            - name: nginx
+              image: nginx:alpine
+              ports:
+              - containerPort: 80
 
     - name: Apply kata-fc RuntimeClass and test-kata-fc pod
       command: kubectl apply -f /tmp/kata-fc-runtimeclass.yaml
@@ -49,12 +72,55 @@
       register: cilium_endpoints
       failed_when: false
 
-    - name: Copy and apply OpenEBS LVM test pod manifest if present
+    - name: Generate OpenEBS LVM test pod manifest
       copy:
-        src: "{{ playbook_dir }}/kata-fc-lvm-test.yaml"
         dest: /tmp/kata-fc-lvm-test.yaml
         mode: "0644"
-      failed_when: false
+        content: |
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: kata-fc-lvm-pvc
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            volumeMode: Block
+            storageClassName: openebs-lvm
+            resources:
+              requests:
+                storage: 1Gi
+          ---
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: test-kata-fc-lvm
+            labels:
+              app: test-kata-fc-lvm
+          spec:
+            runtimeClassName: kata-fc
+            restartPolicy: Never
+            containers:
+              - name: block-tester
+                image: alpine:latest
+                command:
+                  - /bin/sh
+                  - -c
+                  - |
+                    echo "Checking raw block device inside Firecracker microVM:"
+                    ls -l /dev/xvda
+                    echo "Writing test signature to block device..."
+                    echo "KATA-FC-OPENEBS-LVM-OK" | dd of=/dev/xvda bs=512 count=1
+                    echo "Reading back signature from block device:"
+                    dd if=/dev/xvda bs=512 count=1 2>/dev/null | tr -d '\0'
+                    echo "Test complete. Sleeping to allow inspection..."
+                    sleep 3600
+                volumeDevices:
+                  - name: lvm-block-volume
+                    devicePath: /dev/xvda
+            volumes:
+              - name: lvm-block-volume
+                persistentVolumeClaim:
+                  claimName: kata-fc-lvm-pvc
       register: lvm_test_copy
 
     - name: Clean up existing OpenEBS LVM test pod if re-running
