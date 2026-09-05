@@ -62,11 +62,13 @@ spec:
               operator: Exists
           ingress:
           - fromEndpoints:
-            - matchLabels: {}
+            - matchLabels:
+                "k8s:io.kubernetes.pod.namespace": "{{request.namespace}}"
           egress:
           # 1. Allow communication with pods in the same namespace
           - toEndpoints:
-            - matchLabels: {}
+            - matchLabels:
+                "k8s:io.kubernetes.pod.namespace": "{{request.namespace}}"
 
           # 2. Allow DNS to cluster DNS (CoreDNS in kube-system)
           - toEndpoints:
@@ -86,6 +88,6 @@ spec:
               - port: "53"
                 protocol: ANY
 
-          # 4. Allow full outbound Internet access (HTTP, HTTPS, git, external APIs)
+          # 4. Outbound Internet access (strictly outside the cluster)
           - toEntities:
             - world
