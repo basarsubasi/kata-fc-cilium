@@ -1,4 +1,4 @@
-# Deploy Kubernetes Cluster with Kata Containers (Firecracker) & Cilium
+# Agent Sandbox Playbook: Isolated Development Cluster Setup
 
 This repository provides an automated, production-ready setup for deploying a Kubernetes cluster configured with **Kata Containers with Firecracker (`kata-fc`)** for hardware-isolated microVM pods, **Cilium** as the eBPF CNI, **OpenEBS LocalPV LVM** for raw block persistent storage, and **Kyverno** admission policies to automatically isolate **Kubernetes SIG Agent Sandboxes** managed via **Kampfire**.
 
@@ -227,7 +227,7 @@ To make sandbox deployment effortless, users should not have to manually craft Y
    - **Rule 2 (`mutate-sandbox-pvc`):** Mutates PVCs to use `storageClassName: openebs-lvm`.
    - **Rule 3 (`generate-cilium-isolation-policy`):** Auto-generates a `CiliumNetworkPolicy` (`isolate-kampfire-sandboxes`) inside the target namespace that isolates sandboxes within their namespace while permitting CoreDNS and outbound Internet access.
 6. **Installs Kampfire CLI:**
-   - Downloads and installs the `kampfire` binary (v1.2.0) into `/usr/local/bin/kampfire`.
+   - Downloads and installs the `kampfire` binary (v1.3.0) into `/usr/local/bin/kampfire`.
 7. **End-to-End Live Verification Test:**
    - Executes `kampfire run --persist /workspace --image alpine -d`.
    - Confirms that Kyverno mutated the pod to `runtimeClassName: kata-fc`.
